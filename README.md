@@ -1,4 +1,4 @@
-# AWSCrossRegionReplicationLambda
+# AWS Cross Region Replication Lambda
 
 Use this script at your own risk. Note that it deleted snapshots from the target region based on retentions settings. To try this out create an AWS Lambda Function, setup the mandatory environment variables and hit Test. Example:
 
