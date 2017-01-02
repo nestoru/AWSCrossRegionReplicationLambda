@@ -1,6 +1,12 @@
 # AWS Cross Region Replication Lambda
 
-Use this script at your own risk. Note that it deletes snapshots from the target region based on retentions settings. To try this out create an AWS Lambda Function, setup the mandatory environment variables and hit Test. Example:
+An AWS Lambda Function to replicate a datacenter from one live region to a different DR region.
+
+# WARNING
+Use this script at your own risk. Note that it deletes snapshots from the target region based on retentions settings. 
+
+# Try it
+To try this out create an AWS Lambda Function, setup the mandatory environment variables and hit Test. Example:
 
 ```
 SOURCE_REGION = 'us-east-1'
