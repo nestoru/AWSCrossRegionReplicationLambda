@@ -125,13 +125,18 @@ def lambda_handler(event, context):
                     ]
                 )['Snapshots']
 
-                # Tag all target snapshots with the source instance tags
+                # Name target snapshots with the source volume name
                 for target_snapshot in target_snapshots:
                     snapshot_resource = target_resource.Snapshot(target_snapshot['SnapshotId'])
                     snapshot_resource.create_tags(
-                        Tags = instance['Tags']
+                        Tags = [
+                            {
+                                'Key': 'Name',
+                                'Value': volume_name
+                            },
+                        ]
                     )
-
+                    
                 # Replicate only those snapshots that were not replicated before
                 if not target_snapshots:
                     try:
