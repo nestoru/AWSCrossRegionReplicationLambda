@@ -23,11 +23,8 @@ PROD_ENV_RETENTION_DAYS=int(os.environ["PROD_ENV_RETENTION_DAYS"])
 source_ec2 = boto3.client('ec2', region_name=SOURCE_REGION)
 target_ec2 = boto3.client('ec2', region_name=TARGET_REGION)
 
-# Define resource
-target_resource = boto3.resource('ec2', region_name=TARGET_REGION)
-
-# Define the array to keep track of valid descriptions to be replicated
-snapshot_descriptions = []
+# Define resources
+source_resource = boto3.resource('ec2', region_name=SOURCE_REGION)
 
 def lambda_handler(event, context):
     # Define what specific instance tags should be scanned for replication
@@ -47,6 +44,7 @@ def lambda_handler(event, context):
     ).get(
         'Reservations', []
     )
+    
     reservations = reservations_test + reservations_prod
     instances = sum(
         [
@@ -104,30 +102,16 @@ def lambda_handler(event, context):
             for snapshot in source_snapshots:
                 snapshot_id = snapshot['SnapshotId']
                 snapshot_state = snapshot['State']
+                tz_info = snapshot['StartTime'].tzinfo
+                # Snapshots that were not taken within the last 24 hours do not qualify for replication
+                if snapshot['StartTime'] > datetime.now(tz_info) + timedelta(days=-1):     
+                    # Snapshots that are not completed do not qualify for replication
+                    if(snapshot_state != 'completed'):
+                        continue
+                    snapshot_description = instance_name + ':' + volume_name + ':' + snapshot_id
 
-                # Snapshots that are not completed do not qualify for replication
-                if(snapshot_state != 'completed'):
-                    continue
-                snapshot_description = instance_name + ':' + volume_name + ':' + snapshot_id
-
-                # Keep track of those snapshots description we do want in the target
-                snapshot_descriptions.append(snapshot_description)
-
-                # Find any target snapshot that is already a replica
-                target_snapshots = target_ec2.describe_snapshots(
-                    Filters = [
-                        {
-                            'Name': 'description',
-                            'Values': [
-                                snapshot_description,
-                            ]
-                        }
-                    ]
-                )['Snapshots']
-
-                # Name target snapshots with the source volume name
-                for target_snapshot in target_snapshots:
-                    snapshot_resource = target_resource.Snapshot(target_snapshot['SnapshotId'])
+                    # Guarantee that source snapshots are named after their volume (should be removed if that is already the case)
+                    snapshot_resource = source_resource.Snapshot(snapshot_id)
                     snapshot_resource.create_tags(
                         Tags = [
                             {
@@ -136,23 +120,32 @@ def lambda_handler(event, context):
                             },
                         ]
                     )
-                    
-                # Replicate only those snapshots that were not replicated before
-                if not target_snapshots:
-                    try:
-                        target_ec2.copy_snapshot(
-                            SourceRegion=SOURCE_REGION,
-                            SourceSnapshotId=snapshot_id,
-                            Description=snapshot_description,
-                            DestinationRegion=TARGET_REGION
-                        )
-                    except botocore.exceptions.ClientError:
-                        # Swallow the exception. Most likely more than 5 snapshots are being replicated
-                        target_snapshot = None
-
-                    if(target_snapshot):
-                        print '%s\t%s\t%s\t%s\t%s\t%s' % (
-                            instance_name, instance_id, volume_name, volume_id, snapshot_id, snapshot_state)
+    
+                    # Find any target snapshot that is already a replica
+                    target_snapshots = target_ec2.describe_snapshots(
+                        Filters = [
+                            {
+                                'Name': 'description',
+                                'Values': [
+                                    snapshot_description,
+                                ]
+                            }
+                        ]
+                    )['Snapshots']
+                        
+                    # Replicate only those snapshots that were not replicated before
+                    if not target_snapshots:
+                        try:
+                            target_ec2.copy_snapshot(
+                                SourceRegion=SOURCE_REGION,
+                                SourceSnapshotId=snapshot_id,
+                                Description=snapshot_description,
+                                DestinationRegion=TARGET_REGION
+                            )
+                            print '%s\t%s\t%s\t%s\t%s\t%s' % (
+                                instance_name, instance_id, volume_name, volume_id, snapshot_id, snapshot_state)
+                        except botocore.exceptions.ClientError as e:
+                            print e
 
     # Delete the target snapshots depending on retention policy
     test_target_snapshots = target_ec2.describe_snapshots(
